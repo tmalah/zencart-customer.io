@@ -1,0 +1,185 @@
+/includes/classes/customerIO.php - Customer.io class
+
+---------------------------------------------------------------------------
+
+/includes/classes/order.php
+
+Line #1175 : 
+    //  customer.io - order event
+    include_once(DIR_WS_CLASSES.'customerIO.php');
+    $customerio = new CustomerIO();
+    
+    $qty = 0;
+    $prod_array = array();
+    foreach ($this->products as $product) {
+            
+        $class_names = array();
+                
+        $product_classes_sql = "SELECT products_classes
+                                FROM ".TABLE_PRODUCTS."
+                                WHERE products_id = ".(int)$product['id'];
+        $product_classes = $db->execute($product_classes_sql);
+                
+        while (!$product_classes->EOF) {
+                    
+            if ($product_classes->fields['products_classes'] != '') {
+                        
+                $classes_array = explode(',', $product_classes->fields['products_classes']);
+                        
+                $class_names = array();
+                $event_classes = array();
+                foreach ($classes_array as $class_id) {
+                    if ($class_id != '') {
+                        if (!in_array($classes_names[$class_id], $class_names)) {
+                            $class_names[] = $classes_names[$class_id];
+                            $event_classes[$class_id] = $classes_names[$class_id];
+                        }
+                    }
+                }
+            }                
+            $product_classes->MoveNext();
+        }
+                
+        if (count($class_names) == 1) {
+            //$class_names = $class_names[0];
+        }
+        
+        //  send events "class"
+        foreach ($event_classes as $key => $value) {            
+            $data = array('date' => date('U'),
+                          'class_id' => $key,
+                          'class_name' => $value);            
+            $customerio->triggerEvent((int)$_SESSION['customer_id'], 'class', $data);
+        }
+                
+        $prod_array[] = array(
+            'id' => (int)$product['id'],
+            'name' => $product['name'],
+            'model' => $product['model'],
+            'price' => $product['final_price'],
+            'class' => $class_names
+        );
+        $qty += (int)$product['qty'];
+        
+        // send event "product"
+        $data = array('id' => (int)$product['id'],
+                      'name' => $product['name'],
+                      'model' => $product['model'],
+                      'price' => $product['final_price'],
+                      'date' => date('U'),
+                      'qty' => (int)$product['qty']);
+                      
+        $customerio->triggerEvent((int)$_SESSION['customer_id'], 'product', $data);
+    }
+    
+    $data = array(
+            'date' => date('U'),
+            'total' => $this->info['total'],
+            'qty' => $qty,
+            'products' => $prod_array
+    );
+
+    $customerio->triggerEvent((int)$_SESSION['customer_id'], 'purchased', $data);
+
+
+---------------------------------------------------------------------------
+ 
+/includes/classes/shopping_cart.php
+
+Line #1703 :
+    //  send cart=1 to customer.io
+    if ($this->count_contents() > 0) {
+        if (isset($_SESSION['customer_id'])) {
+            include_once(DIR_WS_CLASSES.'customerIO.php');
+            $customerio = new CustomerIO();
+            $info = array('has_cart' => 1,
+                          'cart_content' => $this->get_cart_html(),
+                          'action' => 'actionAddProduct',
+                          'cart_added' => time());
+            $customerio->EditUser((int)$_SESSION['customer_id'], '', $info);
+        }
+    }
+
+Line #1920 :
+        //  send cart=0 to customer.io
+        if (isset($_SESSION['customer_id']) && $this->count_contents() == 0) {
+            include_once(DIR_WS_CLASSES.'customerIO.php');
+            $customerio = new CustomerIO();
+            $info = array('has_cart' => 0,
+                          'action' => 'actionRemoveProduct');
+            $customerio->EditUser((int)$_SESSION['customer_id'], '', $info);
+        }
+
+ 
+---------------------------------------------------------------------------
+
+/includes/classes/shopping_cart_ext.php
+
+Line #257 :
+            //  send cart=0 to customer.io
+    if (isset($_SESSION['customer_id'])) {
+        if ($this->count_contents() == 0) {
+            $info = array('has_cart' => 0);
+        } else {
+            
+            $info = array('has_cart' => 1,
+                          'cart_content' => $this->get_cart_html(),
+                          'cart_added' => time());
+        }
+      
+        
+        $info['action'] = 'actionUpdateProduct';
+        include_once(DIR_WS_CLASSES.'customerIO.php');
+        $customerio = new CustomerIO();
+        $customerio->EditUser((int)$_SESSION['customer_id'], '', $info);
+    }
+ 
+---------------------------------------------------------------------------
+
+/includes/modules/create_account.php
+
+Line #582 :
+    //  customer.io - add customer
+    include_once(DIR_WS_CLASSES.'customerIO.php');
+    $customerio = new CustomerIO();
+    
+    $email = str_replace('@', '@taras.', $email_address);
+    $add_date = date('U');
+        
+    $extra = array('firstname' => $firstname,
+                    'lastname' => $lastname);
+    if ($_SESSION['cart']->count_contents() > 0) {
+        $extra['has_cart'] = 1;
+    } else {
+        $extra['has_cart'] = 0;
+    }
+        
+    $customerio->addUser((int)$_SESSION['customer_id'], $email, $add_date, $extra);
+
+---------------------------------------------------------------------------
+ 
+/includes/modules/pages/checkout_success/header_php.php
+
+Line #115 :
+  //  send user info to customer.io
+        $orders_count_sql = "SELECT DISTINCT orders_id FROM ".TABLE_ORDERS."
+                             WHERE customers_id = '".$customers->fields['customers_id']."'";
+        $orders_count = $db->execute($orders_count_sql);
+        
+        $orders_total_sql = "SELECT sum(order_total) as total FROM ".TABLE_ORDERS."
+                             WHERE customers_id = '".$customers->fields['customers_id']."'";
+        $orders_total = $db->execute($orders_total_sql);
+        
+        $has_cart_sql = "SELECT customers_id FROM ".TABLE_CUSTOMERS_BASKET."
+                         WHERE customers_id = '".$customers->fields['customers_id']."'";
+        $has_cart = $db->execute($has_cart_sql);
+        
+        
+        $info = array('orders_count' => $orders_count->RecordCount(),
+                       'orders_total' => $orders_total->fields['total'],
+                       'has_cart' => 0);
+  
+        include_once(DIR_WS_CLASSES.'customerIO.php');
+        $customerio = new CustomerIO();
+        $customerio->EditUser((int)$_SESSION['customer_id'], '', $info);
+
